@@ -1,0 +1,29 @@
+{
+  "name": "irodori-tts-voice",
+  "version": "0.1.0",
+  "description": "Claude Code の応答が終わるたびに、Irodori-TTS で応答をローカル読み上げする（macOS）",
+  "author": {
+    "name": "azukizuki"
+  },
+  "userConfig": {
+    "irodori_dir": {
+      "type": "directory",
+      "title": "Irodori-TTS のフォルダ",
+      "description": "clone して uv sync 済みの Irodori-TTS のフォルダ（例: ~/Irodori-TTS）",
+      "required": true
+    },
+    "port": {
+      "type": "number",
+      "title": "読み上げサーバーのポート",
+      "description": "127.0.0.1 で待ち受けるポート",
+      "default": 8765
+    },
+    "max_chars": {
+      "type": "number",
+      "title": "読み上げる最大文字数",
+      "description": "0 で上限なし",
+      "default": 5000
+    }
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,14 @@
+{
+  "name": "claude-code-irodoritts",
+  "owner": {
+    "name": "azukizuki"
+  },
+  "plugins": [
+    {
+      "name": "irodori-tts-voice",
+      "source": "./plugins/irodori-tts-voice",
+      "description": "Claude Code の応答を Irodori-TTS でローカル読み上げする"
+    }
+  ],
+  "description": "Irodori-TTS で Claude Code の応答を読み上げるプラグイン"
+}
