@@ -37,6 +37,7 @@ FEW_SHOT = [
 ]
 
 _cache: dict[str, str] | None = None
+_cache_mtime: int | None = None  # 最後に読んだ、または書いたときの kana_cache.json の更新時刻（ファイルがなければ None）
 _pending: set[str] = set()  # LLM に聞いている最中の語
 _changed = threading.Condition()  # _cache と _pending を守り、読みが増えたら知らせる
 
@@ -45,22 +46,41 @@ def _cache_path():
     return data_dir() / "kana_cache.json"
 
 
+def _file_mtime() -> int | None:
+    try:
+        return _cache_path().stat().st_mtime_ns
+    except OSError:
+        return None
+
+
 def _load_cache() -> dict[str, str]:
-    global _cache
-    if _cache is None:
+    """キャッシュを返す。利用者がファイルを書き換えたり消したりしたら、読み直す。_changed を持って呼ぶ。"""
+    global _cache, _cache_mtime
+    mtime = _file_mtime()
+    if _cache is None or mtime != _cache_mtime:
         try:
-            _cache = json.loads(_cache_path().read_text())
+            raw = json.loads(_cache_path().read_text())
         except (OSError, ValueError):
-            _cache = {}
+            raw = {}
+        # 手で壊れた値を書かれても変換が止まらないよう、英語 → カタカナの組だけを残す
+        _cache = {
+            k: v.strip()
+            for k, v in (raw.items() if isinstance(raw, dict) else ())
+            if isinstance(k, str) and isinstance(v, str) and KATAKANA.fullmatch(v.strip())
+        }
+        _cache_mtime = mtime
     return _cache
 
 
 def _save_cache() -> None:
+    """メモリのキャッシュをファイルに書く。_changed を持って、_load_cache で最新にしてから更新したあとに呼ぶ。"""
+    global _cache_mtime
     path = _cache_path()
     tmp = path.with_suffix(".tmp")
     try:
-        tmp.write_text(json.dumps(_load_cache(), ensure_ascii=False, indent=0, sort_keys=True))
+        tmp.write_text(json.dumps(_cache or {}, ensure_ascii=False, indent=0, sort_keys=True))
         tmp.replace(path)
+        _cache_mtime = _file_mtime()
     except OSError:
         pass
 
@@ -216,13 +236,14 @@ def to_kana(text: str, url: str, model: str) -> str:
     deadline = time.monotonic() + TIMEOUT
     with _changed:
         # 全部の読みがそろうか、聞いている語がなくなるか、TIMEOUT 秒たつまで待つ
-        while any(w not in cache and w in _pending for w in unknown):
+        # 待っている間にキャッシュが読み直されることがあるので、毎回 _load_cache() で最新を見る
+        while any(w not in _load_cache() and w in _pending for w in unknown):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                late = [w for w in unknown if w not in cache and w in _pending]
+                late = [w for w in unknown if w not in _load_cache() and w in _pending]
                 print(f"[kana] {TIMEOUT:.0f} 秒で間に合わず英語のまま読む: {', '.join(late)}（読みは裏で取得を続ける）", flush=True)
                 break
             _changed.wait(remaining)
-        reading = {w: _lookup(w, dicts, cache) for w in words}
+        reading = {w: _lookup(w, dicts, _load_cache()) for w in words}
 
     return WORD.sub(lambda m: reading.get(m.group(0)) or m.group(0), text)
