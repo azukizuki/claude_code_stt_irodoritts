@@ -1,6 +1,6 @@
 """英単語をカタカナに置き換える（オプション）。server.py の worker から呼ぶ。標準ライブラリだけで書く。
 
-引く順番: ユーザー辞書（voice/kana_dict.txt）→ キャッシュ（kana_cache.json）→ ローカル LLM。
+引く順番: 利用者の辞書（voice/kana_dict.txt）→ 組み込みの辞書（dict/tech.txt）→ キャッシュ（kana_cache.json）→ ローカル LLM。
 LLM は OpenAI 互換の API（Ollama、LM Studio、mlx-lm など）で呼ぶ。失敗したら元の表記のまま残す。
 """
 from __future__ import annotations
@@ -11,6 +11,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 from common import data_dir, voice_dir
 
@@ -64,11 +65,14 @@ def _save_cache() -> None:
         pass
 
 
-def load_user_dict() -> tuple[dict[str, str], dict[str, str]]:
-    """kana_dict.txt を読む。読み上げのたびに呼ぶので、書き換えたら次から反映される。"""
+BUILTIN_DICT = Path(__file__).parent.parent / "dict" / "tech.txt"  # プラグインに同梱する組み込みの辞書
+
+
+def _read_dict(path: Path) -> tuple[dict[str, str], dict[str, str]]:
+    """「英語=カナ」の辞書ファイルを読み、完全一致用と大文字小文字を区別しない用の 2 つを返す。"""
     exact, lower = {}, {}
     try:
-        lines = (voice_dir() / "kana_dict.txt").read_text().splitlines()
+        lines = path.read_text().splitlines()
     except OSError:
         return exact, lower
     for line in lines:
@@ -80,6 +84,20 @@ def load_user_dict() -> tuple[dict[str, str], dict[str, str]]:
             exact[word] = kana
             lower.setdefault(word.lower(), kana)
     return exact, lower
+
+
+def load_dicts() -> list[tuple[dict[str, str], dict[str, str]]]:
+    """利用者の辞書（voice/kana_dict.txt）、組み込みの辞書の順に返す。読み上げのたびに読むので、書き換えたら次から反映される。"""
+    return [_read_dict(voice_dir() / "kana_dict.txt"), _read_dict(BUILTIN_DICT)]
+
+
+def _lookup(word: str, dicts, cache: dict[str, str]) -> str | None:
+    """辞書を前から順に引き（それぞれ完全一致、大文字小文字を区別しない、の順）、なければキャッシュを引く。"""
+    for exact, lower in dicts:
+        kana = exact.get(word) or lower.get(word.lower())
+        if kana:
+            return kana
+    return cache.get(word)
 
 
 def _parse_json_object(content: str) -> dict:
@@ -186,10 +204,10 @@ def to_kana(text: str, url: str, model: str) -> str:
     words = list(dict.fromkeys(m.group(0) for m in WORD.finditer(text)))
     if not words:
         return text
-    exact, lower = load_user_dict()
+    dicts = load_dicts()
     with _changed:
         cache = _load_cache()
-        unknown = [w for w in words if not (exact.get(w) or lower.get(w.lower()) or cache.get(w))]
+        unknown = [w for w in words if not _lookup(w, dicts, cache)]
         ask = [w for w in unknown if w not in _pending]  # ほかの読み上げのために聞いている最中の語は待つだけ
         _pending.update(ask)
     if ask:
@@ -205,6 +223,6 @@ def to_kana(text: str, url: str, model: str) -> str:
                 print(f"[kana] {TIMEOUT:.0f} 秒で間に合わず英語のまま読む: {', '.join(late)}（読みは裏で取得を続ける）", flush=True)
                 break
             _changed.wait(remaining)
-        reading = {w: exact.get(w) or lower.get(w.lower()) or cache.get(w) for w in words}
+        reading = {w: _lookup(w, dicts, cache) for w in words}
 
     return WORD.sub(lambda m: reading.get(m.group(0)) or m.group(0), text)
