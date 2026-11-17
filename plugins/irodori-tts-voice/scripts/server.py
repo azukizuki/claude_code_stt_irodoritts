@@ -172,6 +172,8 @@ def worker() -> None:
         while not jobs.empty():  # 溜まっている場合は最新だけ読む
             text = jobs.get()
         stop_player()
+        if not text:  # /stop の目印。何も読まずに次の依頼を待つ
+            continue
         caption, ref = read_style()
         for i, (chunk, pause) in enumerate(split_with_pause(text)):
             if not jobs.empty():  # 新しい依頼が来たら中断
@@ -209,6 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/speak" and body.strip():
             jobs.put(body.strip())
         elif self.path == "/stop":
+            jobs.put("")  # 先に積んで、読みかけの残りのチャンクも捨てさせる
             stop_player()
         self.send_response(204)
         self.end_headers()

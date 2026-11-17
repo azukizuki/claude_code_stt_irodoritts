@@ -3,17 +3,28 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import PAUSE, data_dir, port  # noqa: E402
+from common import PAUSE, SKIP_NEXT, SKIP_NEXT_TTL, data_dir, port  # noqa: E402
 
 # IRODORI_TTS=0 / off / false で無効（未設定なら有効）
 if os.environ.get("IRODORI_TTS", "1").strip().lower() in ("0", "off", "false", "no"):
     sys.exit(0)
 if (data_dir() / "off").exists():  # 起動中のセッションで一時的に止める
     sys.exit(0)
+
+# /irodori-tts-voice:stop への返事は読み上げない（目印は一度使ったら消す）
+skip = data_dir() / SKIP_NEXT
+try:
+    stamp = float(skip.read_text().strip() or 0)
+    skip.unlink()
+    if time.time() - stamp < SKIP_NEXT_TTL:
+        sys.exit(0)
+except (OSError, ValueError):
+    pass
 
 data = json.load(sys.stdin)
 text = data.get("last_assistant_message") or ""

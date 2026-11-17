@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 
 PAUSE = "⏸"  # speak.py が見出しの前に入れ、server.py が間を空ける目印
+SKIP_NEXT = "skip_next"  # stop.py が置き、speak.py が次の 1 回だけ読み上げをとばす目印（データフォルダ内）
+SKIP_NEXT_TTL = 120  # 目印の有効期限（秒）。古い目印で関係ない応答をとばさないため
 
 
 def port() -> int:
