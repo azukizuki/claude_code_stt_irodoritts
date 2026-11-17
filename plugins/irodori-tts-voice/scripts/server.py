@@ -14,13 +14,20 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-# 取得済みのモデルだけを使い、Hugging Face へ通信しない
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-
 sys.path.insert(0, str(Path(__file__).parent))
-from common import PAUSE, port, voice_dir  # noqa: E402
+from common import PAUSE, data_dir, port, voice_dir  # noqa: E402
+
+CHECKPOINT = os.environ.get("IRODORI_CHECKPOINT", "Aratako/Irodori-TTS-v4.1-Small")
+# 一度読み込みに成功したモデルの名前。これがあれば取得済みのモデルだけを使い、Hugging Face へ通信しない。
+# 初回（モデル未取得）だけは通信して、モデル・トークナイザー・コーデックをダウンロードする。
+MODEL_MARKER = data_dir() / "model_ready"
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+try:
+    if MODEL_MARKER.read_text().strip() == CHECKPOINT:
+        os.environ.setdefault("HF_HUB_OFFLINE", "1")
+        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+except OSError:
+    pass
 
 REPO = Path(os.path.expanduser(os.environ.get("IRODORI_DIR", "~/Irodori-TTS")))
 sys.path.insert(0, str(REPO))
@@ -37,7 +44,6 @@ from irodori_tts.inference_runtime import (  # noqa: E402
 )
 
 PORT = port()
-CHECKPOINT = os.environ.get("IRODORI_CHECKPOINT", "Aratako/Irodori-TTS-v4.1-Small")
 STYLE_DIR = voice_dir()
 OUT_DIR = Path(os.environ.get("TMPDIR", "/tmp"))
 CHUNK = 80  # 1 回の合成の目安文字数（文の切れ目で分ける）
@@ -135,6 +141,10 @@ def load_runtime():
         compile_dynamic=False,
     )
     runtime, _ = get_cached_runtime(key)
+    try:
+        MODEL_MARKER.write_text(CHECKPOINT + "\n")
+    except OSError:
+        pass
     print(f"[irodori] ready device={device} precision={precision} port={PORT}", flush=True)
     return runtime
 
