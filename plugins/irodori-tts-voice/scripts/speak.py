@@ -81,9 +81,17 @@ if limit > 0 and len(text) > limit:
 if not text.strip():
     sys.exit(0)
 
+# 英単語をカタカナに置き換える LLM（オプション）。URL とモデル名の両方があるときだけサーバーに伝える
+headers = {}
+kana_url = (os.environ.get("CLAUDE_PLUGIN_OPTION_KANA_LLM_URL") or "").strip()
+kana_model = (os.environ.get("CLAUDE_PLUGIN_OPTION_KANA_LLM_MODEL") or "").strip()
+if kana_url and kana_model:
+    headers = {"X-Kana-Url": kana_url, "X-Kana-Model": kana_model}
+
 try:
     urllib.request.urlopen(
-        urllib.request.Request(f"http://127.0.0.1:{port()}/speak", data=text.encode("utf-8")), timeout=2
+        urllib.request.Request(f"http://127.0.0.1:{port()}/speak", data=text.encode("utf-8"), headers=headers),
+        timeout=2,
     )
 except Exception:
     pass  # サーバー未起動なら何もしない

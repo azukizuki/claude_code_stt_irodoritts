@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from common import PAUSE, data_dir, port, voice_dir  # noqa: E402
+import kana  # noqa: E402
 
 CHECKPOINT = os.environ.get("IRODORI_CHECKPOINT", "Aratako/Irodori-TTS-v4.1-Small")
 # 一度読み込みに成功したモデルの名前。これがあれば取得済みのモデルだけを使い、Hugging Face へ通信しない。
@@ -150,7 +151,8 @@ def load_runtime():
 
 
 ready = threading.Event()
-jobs: queue.Queue[str] = queue.Queue()
+# (本文, (LLM の URL, モデル名) または None)。None そのものは /stop の目印
+jobs: queue.Queue[tuple[str, tuple[str, str] | None] | None] = queue.Queue()
 player: subprocess.Popen | None = None
 lock = threading.Lock()
 
@@ -168,12 +170,18 @@ def worker() -> None:
     runtime = load_runtime()
     ready.set()
     while True:
-        text = jobs.get()
+        job = jobs.get()
         while not jobs.empty():  # 溜まっている場合は最新だけ読む
-            text = jobs.get()
+            job = jobs.get()
         stop_player()
-        if not text:  # /stop の目印。何も読まずに次の依頼を待つ
+        if job is None:  # /stop の目印。何も読まずに次の依頼を待つ
             continue
+        text, kana_llm = job
+        if kana_llm:  # 英単語をカタカナに置き換える（オプション）
+            try:
+                text = kana.to_kana(text, *kana_llm)
+            except Exception as e:  # noqa: BLE001 変換に失敗しても元の文で読む
+                print(f"[kana] error: {e}", flush=True)
         caption, ref = read_style()
         for i, (chunk, pause) in enumerate(split_with_pause(text)):
             if not jobs.empty():  # 新しい依頼が来たら中断
@@ -209,9 +217,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8")
         if self.path == "/speak" and body.strip():
-            jobs.put(body.strip())
+            url, model = self.headers.get("X-Kana-Url", "").strip(), self.headers.get("X-Kana-Model", "").strip()
+            jobs.put((body.strip(), (url, model) if url and model else None))
         elif self.path == "/stop":
-            jobs.put("")  # 先に積んで、読みかけの残りのチャンクも捨てさせる
+            jobs.put(None)  # 先に積んで、読みかけの残りのチャンクも捨てさせる
             stop_player()
         self.send_response(204)
         self.end_headers()
