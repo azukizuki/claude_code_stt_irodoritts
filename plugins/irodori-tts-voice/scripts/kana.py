@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import urllib.error
 import urllib.request
 
 from common import data_dir, voice_dir
@@ -84,28 +85,45 @@ def _parse_json_object(content: str) -> dict:
     return obj if isinstance(obj, dict) else {}
 
 
-def ask_llm(words: list[str], url: str, model: str, timeout: float) -> dict[str, str]:
-    """words のカタカナ読みを LLM に聞く。カタカナだけでできた答えだけを返す。"""
-    body = {
-        "model": model,
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(words, ensure_ascii=False)},
-        ],
-    }
+def _post_chat(url: str, body: dict, timeout: float) -> str:
     req = urllib.request.Request(
         url.rstrip("/") + "/chat/completions",
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=timeout) as res:
-        content = json.load(res)["choices"][0]["message"]["content"] or ""
+        return json.load(res)["choices"][0]["message"].get("content") or ""
+
+
+def ask_llm(words: list[str], url: str, model: str, timeout: float) -> dict[str, str]:
+    """words のカタカナ読みを LLM に聞く。カタカナだけでできた答えだけを返す。"""
+    body = {
+        "model": model,
+        "temperature": 0,
+        # 思考モードのあるモデル（Qwen 3 以降など）は、思考を切らないと答えが間に合わない。
+        # JSON を強制する response_format は、モデルによっては使えない（Ollama の qwen3.5 など）ので使わず、
+        # プロンプトで JSON を指示して、返ってきた文から取り出す
+        "reasoning_effort": "none",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": json.dumps(words, ensure_ascii=False)},
+        ],
+    }
+    started = time.monotonic()
+    try:
+        content = _post_chat(url, body, timeout)
+    except urllib.error.HTTPError as e:
+        if e.code not in (400, 422):
+            raise
+        # reasoning_effort を受け付けないサーバー向けに、外して 1 回だけやり直す
+        del body["reasoning_effort"]
+        content = _post_chat(url, body, max(0.1, timeout - (time.monotonic() - started)))
     answer = _parse_json_object(content)
+    # 小さいモデルはキーと値を逆にして返すことがある（{"ギットハブ": "GitHub"}）ので、逆向きも受け取る
+    reverse = {v: k for k, v in answer.items() if isinstance(k, str) and isinstance(v, str)}
     result = {}
     for word in words:
-        kana = answer.get(word)
+        kana = answer.get(word) or reverse.get(word)
         if isinstance(kana, str) and KATAKANA.fullmatch(kana.strip()):
             result[word] = kana.strip()
     return result
