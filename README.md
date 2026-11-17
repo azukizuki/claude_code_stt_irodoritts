@@ -73,6 +73,34 @@ cp "$TMPDIR/irodori_speak_0.wav" ~/.claude/plugins/data/<プラグインのID>/v
 ```
 `irodori_speak_0.wav` は、直前の読み上げの最初の部分の音声です。
 
+## 英単語をカタカナで読ませる（オプション）
+Irodori-TTS は日本語専用のモデルなので、英単語の読みを間違えやすいです。ローカル LLM を設定すると、読み上げの前に英単語をカタカナに置き換えます（例: GitHub → ギットハブ）。設定しなければ、この機能は動きません。
+
+### 1. ローカル LLM を用意する
+OpenAI 互換の API（`/v1/chat/completions`）を持つものなら使えます。ここでは Ollama の例を示します。
+```sh
+brew install ollama
+brew services start ollama
+ollama pull <モデル名>   # 日本語に強い小さめのモデル
+```
+
+### 2. プラグインに設定する
+`/plugin configure irodori-tts-voice@claude-code-irodoritts` で、次の 2 つを設定します。どちらかが空なら、この機能は使いません。
+
+| 項目 | 例 |
+|---|---|
+| `kana_llm_url` | `http://127.0.0.1:11434/v1` |
+| `kana_llm_model` | 手順 1 で取得したモデル名 |
+
+読み上げのたびに設定を渡すので、サーバーの再起動は不要です。
+
+### 読みの決まり方
+1. ユーザー辞書（`voice/kana_dict.txt`）。1 行に `英語=カナ` で書きます。読み上げのたびに読み込みます
+2. キャッシュ（データフォルダの `kana_cache.json`）。一度 LLM が答えた読みを保存しておき、次からは LLM に聞きません
+3. ローカル LLM。辞書にもキャッシュにもない語だけを、まとめて聞きます
+
+LLM に接続できないときや、4 秒以内に答えが返らないときは、英語のまま読みます。読みが間違っていたら、ユーザー辞書に正しい読みを書くか、`kana_cache.json` からその語を消してください。変換した語とかかった時間は `server.log` に残ります。
+
 ## トラブルシューティング
 - 読み上げられないときは、`~/.claude/plugins/data/<プラグインのID>/server.log` を確認してください。`curl 127.0.0.1:8765/health` が `ready` を返せば、サーバーは動いています
 - Irodori-TTS の venv が見つからないときは、`/plugin configure` で `irodori_dir` を確認してください。`<irodori_dir>/.venv/bin/python` が存在する必要があります

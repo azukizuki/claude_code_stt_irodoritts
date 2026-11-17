@@ -23,6 +23,18 @@
       "title": "読み上げる最大文字数",
       "description": "0 で上限なし",
       "default": 5000
+    },
+    "kana_llm_url": {
+      "type": "string",
+      "title": "英単語をカタカナにする LLM の URL（オプション）",
+      "description": "OpenAI 互換 API のベース URL（例: Ollama なら http://127.0.0.1:11434/v1）。空ならこの機能を使わない",
+      "default": ""
+    },
+    "kana_llm_model": {
+      "type": "string",
+      "title": "英単語をカタカナにする LLM のモデル名（オプション）",
+      "description": "例: Ollama で pull したモデル名。空ならこの機能を使わない",
+      "default": ""
     }
   },
   "license": "MIT"
